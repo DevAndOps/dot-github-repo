@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# REUSABLE MODULE CI — lives ONCE in EXAMPLE-ORG/.github.
+#
+# For MODULE repos (published, versioned contracts). Unlike reusable-ci.yml
+# there is NO plan/apply and NO OIDC — a module is not deployed, it is tested
+# and published. Centre of gravity is `terraform test` + examples + docs.
+#
+# Guardrails:
+#   - fmt         : formatting across the module
+#   - validate    : the module AND each example under examples/
+#   - tflint      : lint
+#   - checkov     : security scan of the module
+#   - tftest      : native `terraform test` (tests/*.tftest.hcl)
+#   - docs-check  : terraform-docs is up to date (README tables not stale)
+#
+# Action refs shown as tags are PLACEHOLDERS — pin to commit SHAs in real use.
+# ---------------------------------------------------------------------------
+name: reusable-module-ci
+
+on:
+  workflow_call:
+    inputs:
+      module_dir:
+        description: "Directory of the module root (usually '.')."
+        type: string
+        default: "."
+      examples_dir:
+        description: "Directory holding runnable examples."
+        type: string
+        default: "examples"
+      tests_dir:
+        description: "Directory holding *.tftest.hcl files."
+        type: string
+        default: "tests"
+      terraform_version:
+        description: "Terraform version to use."
+        type: string
+        default: "1.7.5"
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - run: terraform fmt -check -recursive
+
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: Validate module
+        run: |
+          set -euo pipefail
+          terraform -chdir=${{ inputs.module_dir }} init -backend=false
+          terraform -chdir=${{ inputs.module_dir }} validate
+      - name: Validate each example
+        run: |
+          set -euo pipefail
+          if [ ! -d "${{ inputs.examples_dir }}" ]; then
+            echo "No examples dir — skipping."
+            exit 0
+          fi
+          for d in "${{ inputs.examples_dir }}"/*/; do
+            [ -f "${d}main.tf" ] || continue
+            echo "== validating ${d} =="
+            terraform -chdir="${d}" init -backend=false
+            terraform -chdir="${d}" validate
+          done
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --chdir=${{ inputs.module_dir }}
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ${{ inputs.module_dir }}
+          framework: terraform
+
+  tftest:
+    name: tftest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: terraform test
+        run: |
+          set -euo pipefail
+          if [ ! -d "${{ inputs.tests_dir }}" ] || ! ls "${{ inputs.tests_dir }}"/*.tftest.hcl >/dev/null 2>&1; then
+            echo "No *.tftest.hcl tests — failing: a published module must be tested."
+            exit 1
+          fi
+          terraform -chdir=${{ inputs.module_dir }} init -backend=false
+          terraform -chdir=${{ inputs.module_dir }} test
+
+  docs-check:
+    name: docs-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: terraform-docs (fail if README out of date)
+        uses: terraform-docs/gh-actions@v1
+        with:
+          working-dir: ${{ inputs.module_dir }}
+          output-file: README.md
+          output-method: inject
+          fail-on-diff: true

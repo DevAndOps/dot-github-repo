@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# REUSABLE MARKDOWN LINT — lives ONCE in EXAMPLE-ORG/.github.
+# For content repos (e.g. context-files) that have no Terraform — just docs.
+# Trivial by design: keeps markdown tidy, nothing more.
+# ---------------------------------------------------------------------------
+name: reusable-markdown-lint
+
+on:
+  workflow_call:
+    inputs:
+      globs:
+        description: "Glob(s) of markdown files to lint."
+        type: string
+        default: "**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: ${{ inputs.globs }}

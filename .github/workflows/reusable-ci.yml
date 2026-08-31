@@ -1,0 +1,163 @@
+# ---------------------------------------------------------------------------
+# REUSABLE CI workflow — lives ONCE, in EXAMPLE-ORG/.github.
+#
+# Every service repo calls this via `uses:` instead of copying the six jobs.
+# Change a guardrail here and every caller gets it on their next run — this is
+# what kills CI duplication across many repos.
+#
+# `on: workflow_call` is what makes a workflow reusable. Inputs/secrets below
+# are the contract callers pass in.
+#
+# Action refs shown as tags are PLACEHOLDERS — pin to commit SHAs in real use.
+# ---------------------------------------------------------------------------
+name: reusable-ci
+
+on:
+  workflow_call:
+    inputs:
+      infra_dir:
+        description: "Directory holding the Terraform to check/deploy."
+        type: string
+        default: "infra"
+      policy_dir:
+        description: "Directory holding Conftest/Rego policies."
+        type: string
+        default: "policy"
+      aws_region:
+        description: "AWS region for plan/apply."
+        type: string
+        default: "ap-southeast-2"
+      terraform_version:
+        description: "Terraform version to use."
+        type: string
+        default: "1.7.5"
+      deploy_role_arn:
+        description: "IAM role ARN assumed via OIDC for plan/apply."
+        type: string
+        required: true
+      apply_environment:
+        description: "GitHub Environment gating apply (required reviewer)."
+        type: string
+        default: "prod"
+    # No long-lived secrets passed: auth is OIDC. Declared for completeness.
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  fmt-validate:
+    name: fmt-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - run: terraform fmt -check -recursive
+      - run: terraform -chdir=${{ inputs.infra_dir }} init -backend=false
+      - run: terraform -chdir=${{ inputs.infra_dir }} validate
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --chdir=${{ inputs.infra_dir }}
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ${{ inputs.infra_dir }}/
+          framework: terraform
+
+  conftest:
+    name: conftest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - name: Build plan JSON for policy input
+        run: |
+          set -euo pipefail
+          terraform -chdir=${{ inputs.infra_dir }} init -backend=false
+          terraform -chdir=${{ inputs.infra_dir }} plan -refresh=false -out=tfplan.bin || true
+          terraform -chdir=${{ inputs.infra_dir }} show -json tfplan.bin > ${{ inputs.infra_dir }}/tfplan.json
+      - name: Install conftest
+        run: |
+          set -euo pipefail
+          VER=0.56.0
+          curl -sL "https://github.com/open-policy-agent/conftest/releases/download/v${VER}/conftest_${VER}_Linux_x86_64.tar.gz" \
+            | tar xz conftest
+          sudo mv conftest /usr/local/bin/
+      - name: Run policy
+        run: conftest test ${{ inputs.infra_dir }}/tfplan.json --policy ${{ inputs.policy_dir }}
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find . -type f -name '*.sh' -not -path './.git/*')
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No shell scripts — nothing to check."
+            exit 0
+          fi
+          shellcheck "${files[@]}"
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  plan:
+    name: plan
+    needs: [fmt-validate, tflint, checkov, conftest, shellcheck, gitleaks]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.deploy_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - run: terraform -chdir=${{ inputs.infra_dir }} init
+      - run: terraform -chdir=${{ inputs.infra_dir }} plan -no-color
+
+  apply:
+    name: apply
+    needs: [fmt-validate, tflint, checkov, conftest, shellcheck, gitleaks]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.apply_environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.deploy_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+      - run: terraform -chdir=${{ inputs.infra_dir }} init
+      - run: terraform -chdir=${{ inputs.infra_dir }} apply -auto-approve
