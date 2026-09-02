@@ -20,12 +20,6 @@ name: scan-ci
 on:
   push:
     branches: [main]
-  workflow_call:
-    inputs:
-      codeql_languages:
-        description: "Comma-separated languages for CodeQL to scan."
-        type: string
-        default: "actions"
 
 permissions:
   contents: read
@@ -43,7 +37,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ inputs.codeql_languages }}   # e.g. "javascript,python"
+          languages: actions
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
       - name: Analyze
