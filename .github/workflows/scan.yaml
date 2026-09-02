@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------------------
+# REUSABLE MODULE CI — lives ONCE in EXAMPLE-ORG/.github.
+#
+# For MODULE repos (published, versioned contracts). Unlike reusable-ci.yml
+# there is NO plan/apply and NO OIDC — a module is not deployed, it is tested
+# and published. Centre of gravity is `terraform test` + examples + docs.
+#
+# Guardrails:
+#   - fmt         : formatting across the module
+#   - validate    : the module AND each example under examples/
+#   - tflint      : lint
+#   - checkov     : security scan of the module
+#   - tftest      : native `terraform test` (tests/*.tftest.hcl)
+#   - docs-check  : terraform-docs is up to date (README tables not stale)
+#
+# Action refs shown as tags are PLACEHOLDERS — pin to commit SHAs in real use.
+# ---------------------------------------------------------------------------
+name: scan-ci
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    name: codeql
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write     # required for CodeQL to upload results
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.codeql_languages }}   # e.g. "javascript,python"
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
