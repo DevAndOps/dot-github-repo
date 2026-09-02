@@ -166,7 +166,7 @@ jobs:
       - name: Print secret (unmasked)
         env:
           SECRET: ${{ secrets.API_KEY }}
-        run: echo "My secret is: $SECRET"
+        run: 'echo "My secret is: $SECRET"'
 
   # ============================================================================
   # VULNERABILITY 11: Environment Variable Injection
