@@ -20,6 +20,12 @@ name: scan-ci
 on:
   push:
     branches: [main]
+  workflow_call:
+    inputs:
+      codeql_languages:
+        description: "Comma-separated languages for CodeQL to scan."
+        type: string
+        default: "actions"
 
 permissions:
   contents: read
