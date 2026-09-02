@@ -36,6 +36,10 @@ on:
         description: "Terraform version to use."
         type: string
         default: "1.7.5"
+      codeql_languages:
+        description: "Comma-separated languages for CodeQL to scan."
+        type: string
+        default: "actions"
 
 permissions:
   contents: read
@@ -126,3 +130,20 @@ jobs:
           output-file: README.md
           output-method: inject
           fail-on-diff: true
+
+  codeql:
+    name: codeql
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write     # required for CodeQL to upload results
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.codeql_languages }}   # e.g. "javascript,python"
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
