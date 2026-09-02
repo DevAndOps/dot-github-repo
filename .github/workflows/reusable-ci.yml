@@ -1,12 +1,13 @@
 # ---------------------------------------------------------------------------
-# REUSABLE CI workflow — lives ONCE, in EXAMPLE-ORG/.github.
+# REUSABLE SERVICE CI — lives ONCE in DevAndOps/dot-github-repo.
 #
-# Every service repo calls this via `uses:` instead of copying the six jobs.
-# Change a guardrail here and every caller gets it on their next run — this is
-# what kills CI duplication across many repos.
+# Guardrails run always. AWS plan/apply run ONLY when deploy_enabled = true.
+# This lets a TEMPLATE repo (or a real repo before its OIDC role exists) pass CI
+# green without authenticating to AWS or deploying anything — while a real,
+# wired service opts in with deploy_enabled: true + a real deploy_role_arn.
 #
-# `on: workflow_call` is what makes a workflow reusable. Inputs/secrets below
-# are the contract callers pass in.
+# Job names are a governance contract: repo-governance requires them as
+# "ci / <job>" status checks. Do NOT rename without updating governance.
 #
 # Action refs shown as tags are PLACEHOLDERS — pin to commit SHAs in real use.
 # ---------------------------------------------------------------------------
@@ -31,15 +32,24 @@ on:
         description: "Terraform version to use."
         type: string
         default: "1.7.5"
+      deploy_enabled:
+        description: >-
+          When true, run AWS plan (on PR) and apply (on merge) using OIDC.
+          When false (default), skip all AWS auth and deploy jobs — the repo
+          still runs every guardrail. Templates and not-yet-wired repos leave
+          this false; real services set it true.
+        type: boolean
+        default: false
       deploy_role_arn:
-        description: "IAM role ARN assumed via OIDC for plan/apply."
+        description: >-
+          IAM role ARN assumed via OIDC for plan/apply. Required only when
+          deploy_enabled is true; ignored otherwise. Leave unset for templates.
         type: string
-        required: true
+        default: ""
       apply_environment:
         description: "GitHub Environment gating apply (required reviewer)."
         type: string
         default: "prod"
-    # No long-lived secrets passed: auth is OIDC. Declared for completeness.
 
 permissions:
   contents: read
@@ -47,6 +57,7 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ---------------- Guardrail jobs (always run) ----------------
   fmt-validate:
     name: fmt-validate
     runs-on: ubuntu-latest
@@ -127,14 +138,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+  # ---------------- Deploy: plan on PR (only when deploy_enabled) ----------------
   plan:
     name: plan
     needs: [fmt-validate, tflint, checkov, conftest, shellcheck, gitleaks]
-    if: github.event_name == 'pull_request'
+    if: inputs.deploy_enabled && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ inputs.deploy_role_arn }}
           aws-region: ${{ inputs.aws_region }}
@@ -144,15 +157,17 @@ jobs:
       - run: terraform -chdir=${{ inputs.infra_dir }} init
       - run: terraform -chdir=${{ inputs.infra_dir }} plan -no-color
 
+  # ---------------- Deploy: apply on merge, gated (only when deploy_enabled) ----------------
   apply:
     name: apply
     needs: [fmt-validate, tflint, checkov, conftest, shellcheck, gitleaks]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: inputs.deploy_enabled && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: ${{ inputs.apply_environment }}
     steps:
       - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ inputs.deploy_role_arn }}
           aws-region: ${{ inputs.aws_region }}
