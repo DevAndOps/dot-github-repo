@@ -1,22 +1,16 @@
 name: codeql-catchable
 
 on:
-  pull_request:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-  security-events: write
-
+  pull_request_target:
+    types: [Created]
 jobs:
-  secrets-exposure:
-    name: secrets-exposure
+  test:
+    environment: NeedsApproval
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Echo PR title (contains secret)
-        env:
-          API_KEY: ${{ secrets.API_KEY }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: '"echo "Processing: $PR_TITLE"'
+      - name: Checkout from PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+      - run: ./cmd
