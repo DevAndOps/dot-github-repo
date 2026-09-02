@@ -25,13 +25,4 @@ jobs:
       - uses: DavidAnson/markdownlint-cli2-action@v16
         with:
           globs: ${{ inputs.globs }}
-  setValue:  
-    name: Set the value
-    runs-on: ubuntu-latest
-    steps:
-    - name: Set the value
-      id: step_one
-      env:
-        BODY: ${{ github.event.comment.body }}
-      run: |
-        REPLACED=$(echo "$BODY" | sed 's/FOO/BA
+  
