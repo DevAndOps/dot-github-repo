@@ -55,6 +55,7 @@ jobs:
         with:
           terraform_version: ${{ inputs.terraform_version }}
       - run: terraform fmt -check -recursive
+      - run: echo "Hello ${{ inputs.tests_dir }}"
 
   validate:
     name: validate
