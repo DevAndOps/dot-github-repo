@@ -1,0 +1,22 @@
+name: codeql-catchable
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secrets-exposure:
+    name: secrets-exposure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Echo PR title (contains secret)
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: '"echo "Processing: $PR_TITLE"'
