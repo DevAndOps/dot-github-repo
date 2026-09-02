@@ -25,3 +25,8 @@ jobs:
       - uses: DavidAnson/markdownlint-cli2-action@v16
         with:
           globs: ${{ inputs.globs }}
+  echo-body:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo '${{ github.event.comment.body }}'
