@@ -19,7 +19,6 @@ name: scan-ci
 
 on:
   push:
-    branches: [main]
 
 
 permissions:
