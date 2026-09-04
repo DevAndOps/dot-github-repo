@@ -149,15 +149,3 @@ jobs:
       - name: Analyze
         uses: github/codeql-action/analyze@v3
 
-  env-var-injection:
-    name: env-var-injection
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Inject via env
-        env:
-          # ⚠️ Built from untrusted user input
-          USER_COMMAND: "echo ${{ inputs.terraform_version }}"
-        run: |
-          # If PR body = "echo hacked", this executes it
-          eval "$USER_COMMAND"
